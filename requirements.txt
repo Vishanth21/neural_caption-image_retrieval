@@ -1,0 +1,9 @@
+# Python dependencies for the caption-image retrieval mini-project.
+#
+# PyTorch is best installed from the CPU wheel index (see README):
+#     pip install torch --index-url https://download.pytorch.org/whl/cpu
+# It is listed here too, so a plain `pip install -r requirements.txt` still
+# works (it will pull the default build for your platform).
+
+numpy>=1.24
+torch>=2.0
