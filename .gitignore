@@ -1,3 +1,18 @@
 *.pem
 .DS_Store
 
+
+# datasets, downloads and training outputs (see data/README.md)
+data/coco/
+data/coco2017/
+data/dl/
+data/glove/
+*.npy
+*.pt
+demo_montage.png
+!deliverables/demo_montage.png
+__pycache__/
+.venv/
+deliverables/fonts/
+deliverables/node_modules/
+deliverables/writeup.html

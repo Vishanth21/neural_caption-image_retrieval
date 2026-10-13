@@ -6,7 +6,9 @@ Usage
         --data-dir data/coco \
         --glove /home/ubuntu/work/glove.6B.300d.txt \
         --num-train-images 5000 \
-        --epochs 10
+        --epochs 30
+
+Pass ``--num-train-images 0`` to train on the full 113,287-image split.
 
 Training pairs each image with one of its five captions per epoch (chosen
 randomly). Negatives are the other examples in the batch, per the margin
@@ -16,6 +18,7 @@ ranking objective.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -36,8 +39,10 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train GRU caption encoder")
     p.add_argument("--data-dir", required=True)
     p.add_argument("--glove", required=True)
-    p.add_argument("--num-train-images", type=int, default=5000)
-    p.add_argument("--num-val-images", type=int, default=5000)
+    p.add_argument("--num-train-images", type=int, default=5000,
+                   help="subset of training images (0 = full 113,287 split)")
+    p.add_argument("--num-val-images", type=int, default=5000,
+                   help="subset of validation images (0 = all 5,000)")
     p.add_argument("--embed-dim", type=int, default=1024)
     p.add_argument("--hidden-dim", type=int, default=1024)
     p.add_argument("--max-len", type=int, default=20)
@@ -47,7 +52,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="rnn_checkpoint.pt")
+    p.add_argument("--metrics-out", default="",
+                   help="optional JSON file for per-epoch and test metrics")
+    p.add_argument("--device", default="auto",
+                   help="auto | cpu | cuda | mps (auto picks cuda, then mps, then cpu)")
     return p.parse_args()
+
+
+def pick_device(name: str) -> torch.device:
+    if name != "auto":
+        return torch.device(name)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def make_batches(n: int, batch_size: int, rng: np.random.Generator):
@@ -67,16 +86,17 @@ def evaluate(
     vocab: dict,
     max_len: int,
     batch_size: int = 256,
+    device: torch.device = torch.device("cpu"),
 ) -> dict:
     """Rank all val images for each val caption; report R@K and mean rank."""
     img_enc.eval()
     cap_enc.eval()
     with torch.no_grad():
-        vf = torch.from_numpy(val_feats)
+        vf = torch.from_numpy(val_feats).to(device)
         img_emb = img_enc(vf)                                   # (V, D)
 
         num_caps = len(val_caps)
-        cap_emb = torch.empty(num_caps, img_emb.shape[1])
+        cap_emb = torch.empty(num_caps, img_emb.shape[1], device=device)
         for start in range(0, num_caps, batch_size):
             stop = min(start + batch_size, num_caps)
             ids = []
@@ -87,17 +107,17 @@ def evaluate(
                 lens.append(l)
             ids_t = torch.from_numpy(np.stack(ids))
             lens_t = torch.from_numpy(np.asarray(lens, dtype=np.int64))
-            cap_emb[start:stop] = cap_enc(ids_t, lens_t)
+            cap_emb[start:stop] = cap_enc(ids_t.to(device), lens_t)
 
-        # squared distance caption -> image
+        # squared distance caption -> image. A caption's rank is 1 + the
+        # number of images strictly closer than its own (no full sort needed).
         a2 = (img_emb * img_emb).sum(dim=1, keepdim=True)       # (V, 1)
         b2 = (cap_emb * cap_emb).sum(dim=1).unsqueeze(0)        # (1, C)
         d2 = a2 - 2.0 * img_emb @ cap_emb.t() + b2              # (V, C)
-        order = torch.argsort(d2, dim=0)                        # per caption
-        image_index = torch.arange(num_caps) // data_mod.CAPTIONS_PER_IMAGE
-        pos = (order == image_index.unsqueeze(0)).nonzero()
-        ranks = torch.zeros(num_caps, dtype=torch.long)
-        ranks[pos[:, 1]] = pos[:, 0] + 1
+        cols = torch.arange(num_caps, device=device)
+        image_index = cols // data_mod.CAPTIONS_PER_IMAGE
+        true_d2 = d2[image_index, cols]
+        ranks = ((d2 < true_d2.unsqueeze(0)).sum(dim=0) + 1).cpu()
 
     out = {}
     for k in (1, 5, 10):
@@ -106,10 +126,29 @@ def evaluate(
     return out
 
 
+def evaluate_test(img_enc, cap_enc, data_dir, vocab, max_len, device) -> dict:
+    """Score a model on the test split: the full pool, plus the 1k-image
+    protocol (five disjoint 1,000-image folds, averaged) used by the
+    reference work."""
+    feats, caps = data_mod.load_split(data_dir, "test")
+    out = {"5k": evaluate(img_enc, cap_enc, feats, caps, vocab, max_len,
+                          device=device)}
+    per = data_mod.CAPTIONS_PER_IMAGE
+    folds = [
+        evaluate(img_enc, cap_enc, feats[i:i + 1000],
+                 caps[i * per:(i + 1000) * per], vocab, max_len, device=device)
+        for i in range(0, feats.shape[0] - 999, 1000)
+    ]
+    out["1k"] = {k: float(np.mean([f[k] for f in folds])) for k in folds[0]}
+    return out
+
+
 def main() -> None:
     args = parse_args()
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
+    device = pick_device(args.device)
+    print(f"      device={device}")
 
     print("[1/6] loading GloVe ...")
     emb = glove_mod.load_glove(args.glove)
@@ -145,12 +184,12 @@ def main() -> None:
         cap_lens[i] = length
 
     print("[5/6] building model ...")
-    img_enc = models.ImageEncoder(4096, args.embed_dim)
+    img_enc = models.ImageEncoder(4096, args.embed_dim).to(device)
     cap_enc = models.CaptionEncoder(
         embed_dim=args.embed_dim,
         hidden_dim=args.hidden_dim,
         glove_matrix=torch.from_numpy(glove_mat),
-    )
+    ).to(device)
     params = list(img_enc.parameters()) + list(cap_enc.parameters())
     optim = torch.optim.Adam(params, lr=args.lr)
 
@@ -161,6 +200,7 @@ def main() -> None:
 
     print("[6/6] training ...")
     best = -1.0
+    history = []
     for epoch in range(1, args.epochs + 1):
         img_enc.train()
         cap_enc.train()
@@ -171,9 +211,9 @@ def main() -> None:
             b = len(chunk)
             # one random caption per image in the batch
             which = rng.integers(0, data_mod.CAPTIONS_PER_IMAGE, size=b)
-            ids = torch.from_numpy(cap_ids[chunk, which])          # (b, L)
-            lens = torch.from_numpy(cap_lens[chunk, which])        # (b,)
-            imgs = feats_t[torch.from_numpy(chunk)]                # (b, 4096)
+            ids = torch.from_numpy(cap_ids[chunk, which]).to(device)  # (b, L)
+            lens = torch.from_numpy(cap_lens[chunk, which])           # (b,) cpu
+            imgs = feats_t[torch.from_numpy(chunk)].to(device)        # (b, 4096)
 
             img_emb = img_enc(imgs)
             cap_emb = cap_enc(ids, lens)
@@ -187,7 +227,8 @@ def main() -> None:
             nb += 1
 
         metrics = evaluate(
-            img_enc, cap_enc, val_feats, val_caps, vocab, args.max_len
+            img_enc, cap_enc, val_feats, val_caps, vocab, args.max_len,
+            device=device,
         )
         print(
             f"  epoch {epoch:2d} | loss {total / max(nb, 1):8.2f} | "
@@ -195,19 +236,35 @@ def main() -> None:
             f"R@10 {metrics['R@10']:5.1f} | mr {metrics['mean_rank']:6.1f} "
             f"| {time.time() - t0:5.1f}s"
         )
+        history.append({"epoch": epoch, "loss": total / max(nb, 1), **metrics})
         if metrics["R@10"] > best:
             best = metrics["R@10"]
             torch.save(
                 {
-                    "img_enc": img_enc.state_dict(),
-                    "cap_enc": cap_enc.state_dict(),
+                    "img_enc": {k: v.cpu() for k, v in img_enc.state_dict().items()},
+                    "cap_enc": {k: v.cpu() for k, v in cap_enc.state_dict().items()},
                     "vocab": vocab,
                     "args": vars(args),
                     "metrics": metrics,
                 },
                 args.out,
             )
-    print(f"done. best R@10 = {best:.1f}%  (checkpoint: {args.out})")
+    print(f"done. best val R@10 = {best:.1f}%  (checkpoint: {args.out})")
+
+    test = None
+    if os.path.exists(data_mod.feature_path(args.data_dir, "test")):
+        ckpt = torch.load(args.out, map_location="cpu")
+        img_enc.load_state_dict(ckpt["img_enc"])
+        cap_enc.load_state_dict(ckpt["cap_enc"])
+        test = evaluate_test(img_enc, cap_enc, args.data_dir, vocab,
+                             args.max_len, device)
+        for pool, m in test.items():
+            print(f"  test {pool}: R@1 {m['R@1']:5.1f} | R@5 {m['R@5']:5.1f} | "
+                  f"R@10 {m['R@10']:5.1f} | mr {m['mean_rank']:6.1f}")
+    if args.metrics_out:
+        with open(args.metrics_out, "w") as f:
+            json.dump({"args": vars(args), "history": history,
+                       "best_val_R@10": best, "test": test}, f, indent=2)
 
 
 if __name__ == "__main__":

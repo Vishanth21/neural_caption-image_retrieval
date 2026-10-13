@@ -27,6 +27,19 @@ import numpy as np
 
 CAPTIONS_PER_IMAGE = 5
 
+# Feature folders under images/, in order of preference: the Vendrov 10-crop
+# release, or the centre-crop COCO 2017 features from extract_features.py.
+FEATURE_SUBDIRS = ("10crop", "1crop")
+
+
+def feature_path(data_dir: str, split: str) -> str:
+    """Path of a split's feature array (the first FEATURE_SUBDIRS that has it)."""
+    for sub in FEATURE_SUBDIRS:
+        p = os.path.join(data_dir, "images", sub, f"{split}.npy")
+        if os.path.exists(p):
+            return p
+    return os.path.join(data_dir, "images", FEATURE_SUBDIRS[0], f"{split}.npy")
+
 
 def _load_captions(path: str) -> List[str]:
     with open(path, "r", encoding="utf-8") as f:
@@ -40,7 +53,7 @@ def load_split(data_dir: str, split: str) -> Tuple[np.ndarray, List[str]]:
     ----------
     data_dir:
         Directory that directly contains ``train.txt``/``val.txt``/``test.txt``
-        and an ``images/10crop`` subdirectory (i.e. ``.../data/coco``).
+        and an ``images/10crop`` (or ``images/1crop``) subdirectory.
     split:
         One of ``"train"``, ``"val"``, ``"test"``.
 
@@ -55,7 +68,7 @@ def load_split(data_dir: str, split: str) -> Tuple[np.ndarray, List[str]]:
     if split not in ("train", "val", "test"):
         raise ValueError(f"unknown split: {split!r}")
 
-    feat_path = os.path.join(data_dir, "images", "10crop", f"{split}.npy")
+    feat_path = feature_path(data_dir, split)
     cap_path = os.path.join(data_dir, f"{split}.txt")
 
     if not os.path.exists(feat_path):

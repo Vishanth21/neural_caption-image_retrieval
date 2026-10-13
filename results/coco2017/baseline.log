@@ -1,0 +1,21 @@
+[1/5] loading GloVe ...
+      vocab=400001 dim=300 (11.6s)
+[2/5] loading features + captions ...
+      train images=113287 captions=566435
+      val   images=5000 captions=25000
+      (0.3s)
+[3/5] featurizing captions ...
+      X=(566435, 300) Xv=(25000, 300) (5.4s)
+[4/5] fitting W ...
+      W=(300, 4096) (10.0s)
+      saved W to results/coco2017/W.npy
+[5/5] evaluating Recall@K on val ...
+      (14.9s)
+
+  results (baseline, mean-pooled GloVe -> VGG fc7):
+    R@1  = 2.9%
+    R@5  = 10.2%
+    R@10 = 17.5%
+    mean rank = 157.9
+  test 5k: R@1 2.8 | R@5 10.7 | R@10 17.5 | mr 156.7
+  test 1k: R@1 9.7 | R@5 31.6 | R@10 47.7 | mr 32.2

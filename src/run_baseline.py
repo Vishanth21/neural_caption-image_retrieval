@@ -13,6 +13,7 @@ Omit ``--num-train-images`` (or pass 0) to use the full training split.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -35,6 +36,11 @@ def parse_args() -> argparse.Namespace:
                    help="subset of training images to use (0 = all)")
     p.add_argument("--num-val-images", type=int, default=0,
                    help="subset of validation images to evaluate (0 = all)")
+    p.add_argument("--metrics-out", default="",
+                   help="optional JSON file for val and test metrics")
+    p.add_argument("--save-W", default="W.npy",
+                   help="where to save the fitted W (used by demo.py --backend "
+                        "baseline); pass '' to skip")
     return p.parse_args()
 
 
@@ -73,9 +79,11 @@ def main() -> None:
 
     print("[4/5] fitting W ...")
     t0 = time.time()
-    Y = data_mod.expand_features(train_feats_s)
-    W = baseline.fit(X, Y)
+    W = baseline.fit_grouped(X, train_feats_s, data_mod.CAPTIONS_PER_IMAGE)
     print(f"      W={W.shape} ({time.time() - t0:.1f}s)")
+    if args.save_W:
+        np.save(args.save_W, W)
+        print(f"      saved W to {args.save_W}")
 
     print("[5/5] evaluating Recall@K on val ...")
     t0 = time.time()
@@ -92,6 +100,31 @@ def main() -> None:
     for k in (1, 5, 10):
         print(f"    R@{k:<2d} = {metrics[f'R@{k}']:.1f}%")
     print(f"    mean rank = {metrics['mean_rank']:.1f}")
+
+    # test split: full pool + 1k-image protocol (5 folds averaged)
+    results = {"val": metrics, "test": None}
+    test_feat = data_mod.feature_path(args.data_dir, "test")
+    if os.path.exists(test_feat):
+        test_feats, test_caps = data_mod.load_split(args.data_dir, "test")
+        Xt = glove_mod.captions_to_matrix(test_caps, emb, dim) @ W
+        idx = np.arange(len(test_caps)) // data_mod.CAPTIONS_PER_IMAGE
+        per = data_mod.CAPTIONS_PER_IMAGE
+        folds = [
+            baseline.recall_at_k(Xt[i * per:(i + 1000) * per],
+                                 test_feats[i:i + 1000],
+                                 idx[i * per:(i + 1000) * per] - i)
+            for i in range(0, test_feats.shape[0] - 999, 1000)
+        ]
+        results["test"] = {
+            "5k": baseline.recall_at_k(Xt, test_feats, idx),
+            "1k": {k: float(np.mean([f[k] for f in folds])) for k in folds[0]},
+        }
+        for pool, m in results["test"].items():
+            print(f"  test {pool}: R@1 {m['R@1']:.1f} | R@5 {m['R@5']:.1f} | "
+                  f"R@10 {m['R@10']:.1f} | mr {m['mean_rank']:.1f}")
+    if args.metrics_out:
+        with open(args.metrics_out, "w") as f:
+            json.dump(results, f, indent=2)
 
 
 if __name__ == "__main__":

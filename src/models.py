@@ -94,8 +94,8 @@ def margin_loss(
     """Margin ranking loss over the batch similarity matrix.
 
     ``sim[i, j]`` is the similarity of image ``i`` and caption ``j``; the
-diagonal holds the positive pairs. Two terms penalize (a) captions matched
-to the wrong image and (b) images matched to the wrong caption.
+    diagonal holds the positive pairs. Two terms penalize (a) captions matched
+    to the wrong image and (b) images matched to the wrong caption.
     """
     n = sim.shape[0]
     diag = sim.diagonal().unsqueeze(1)                     # (n, 1)

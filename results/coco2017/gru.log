@@ -1,0 +1,34 @@
+      device=mps
+[1/6] loading GloVe ...
+      vocab=400001 dim=300
+[2/6] loading features + captions ...
+      train images=113287 val images=5000
+[3/6] building vocab + embedding matrix ...
+      embedding init: 21836/26353 words from GloVe
+      vocab size=26353
+[4/6] encoding captions ...
+[5/6] building model ...
+[6/6] training ...
+  epoch  1 | loss   180.13 | R@1   4.1 | R@5  14.4 | R@10  23.2 | mr   89.5 | 109.6s
+  epoch  2 | loss    89.98 | R@1   4.8 | R@5  16.5 | R@10  27.2 | mr   74.4 |  66.9s
+  epoch  3 | loss    72.38 | R@1   5.7 | R@5  18.4 | R@10  29.0 | mr   71.9 |  84.1s
+  epoch  4 | loss    65.12 | R@1   5.9 | R@5  20.0 | R@10  31.3 | mr   65.7 |  87.9s
+  epoch  5 | loss    57.95 | R@1   6.6 | R@5  21.4 | R@10  33.3 | mr   63.0 |  85.2s
+  epoch  6 | loss    53.95 | R@1   7.0 | R@5  22.7 | R@10  34.4 | mr   61.5 |  84.6s
+  epoch  7 | loss    49.81 | R@1   7.5 | R@5  24.0 | R@10  36.3 | mr   56.4 |  89.7s
+  epoch  8 | loss    46.31 | R@1   7.8 | R@5  24.0 | R@10  36.7 | mr   56.8 |  90.7s
+  epoch  9 | loss    41.96 | R@1   8.1 | R@5  24.9 | R@10  37.2 | mr   57.3 |  89.9s
+  epoch 10 | loss    40.17 | R@1   8.2 | R@5  25.8 | R@10  38.4 | mr   54.3 |  88.5s
+  epoch 11 | loss    37.85 | R@1   8.6 | R@5  26.5 | R@10  39.5 | mr   51.0 |  88.1s
+  epoch 12 | loss    35.45 | R@1   8.6 | R@5  27.3 | R@10  40.2 | mr   50.5 |  87.3s
+  epoch 13 | loss    32.82 | R@1   9.0 | R@5  27.8 | R@10  40.9 | mr   49.7 |  85.2s
+  epoch 14 | loss    32.11 | R@1   9.3 | R@5  27.8 | R@10  40.9 | mr   49.2 |  84.4s
+  epoch 15 | loss    29.60 | R@1   9.7 | R@5  28.9 | R@10  42.2 | mr   48.0 |  84.9s
+  epoch 16 | loss    28.11 | R@1   9.6 | R@5  28.5 | R@10  42.4 | mr   48.0 |  83.3s
+  epoch 17 | loss    26.67 | R@1   9.8 | R@5  29.2 | R@10  42.7 | mr   47.1 |  83.0s
+  epoch 18 | loss    25.29 | R@1  10.1 | R@5  29.5 | R@10  42.9 | mr   47.7 |  82.9s
+  epoch 19 | loss    25.38 | R@1  10.3 | R@5  29.5 | R@10  43.0 | mr   48.5 |  87.4s
+  epoch 20 | loss    23.78 | R@1  10.2 | R@5  30.0 | R@10  43.8 | mr   45.8 |  82.9s
+done. best val R@10 = 43.8%  (checkpoint: results/coco2017/rnn_checkpoint.pt)
+  test 5k: R@1  10.4 | R@5  30.6 | R@10  43.8 | mr   48.1
+  test 1k: R@1  26.9 | R@5  62.4 | R@10  77.9 | mr   10.4

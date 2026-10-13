@@ -35,6 +35,31 @@ def fit(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     return W.astype(np.float32)
 
 
+def fit_grouped(
+    X: np.ndarray,
+    feats: np.ndarray,
+    per_image: int,
+    ridge: float = 1e-3,
+) -> np.ndarray:
+    """Same least-squares ``W`` as ``fit(X, expand_features(feats))``, without
+    materializing the expanded target.
+
+    Every image owns ``per_image`` consecutive caption rows of ``X`` and they
+    all share one target row, so ``X^T Y = (sum of each image's caption
+    rows)^T @ feats``. Solving the normal equations then needs only a
+    ``(d_text, d_text)`` system. On the full train split this avoids a
+    566,435 x 4096 (9.3 GB) array. ``ridge`` adds a tiny ``lambda * I`` for
+    numerical stability.
+    """
+    X64 = X.astype(np.float64)
+    n_img = feats.shape[0]
+    Xsum = X64.reshape(n_img, per_image, -1).sum(axis=1)   # (n_img, d_text)
+    XtX = X64.T @ X64
+    XtY = Xsum.T @ feats.astype(np.float64)                # (d_text, d_image)
+    XtX[np.diag_indices_from(XtX)] += ridge
+    return np.linalg.solve(XtX, XtY).astype(np.float32)
+
+
 def recall_at_k(
     projected: np.ndarray,
     target_feats: np.ndarray,
